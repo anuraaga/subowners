@@ -50,11 +50,13 @@ async function handlePullRequest() {
   const reviewers = await getConfigReviewers(config, changedFiles);
   console.debug(`Adding reviewers ${reviewers}`);
 
-  await githubApi.rest.pulls.requestReviewers({
+  const reviewComment = `Requesting review from: ${reviewers.map(name => `@${name}`).join(' ')}`;
+
+  await githubApi.rest.issues.createComment({
     owner: github.context.repo.owner,
     repo: github.context.repo.repo,
-    pull_number: pull.number,
-    reviewers: reviewers,
+    issue_number: pull.number,
+    body: reviewComment,
   });
 
   await githubApi.rest.issues.addLabels({
@@ -113,11 +115,13 @@ async function handleIssueComment() {
       return;
     }
 
-    await githubApi.rest.issues.addAssignees({
+    const reviewComment = `Requesting approval from: ${approvers.map(name => `@${name}`).join(' ')}`;
+
+    await githubApi.rest.issues.createComment({
       owner: github.context.repo.owner,
       repo: github.context.repo.repo,
-      issue_number: github.context.issue.number,
-      assignees: approvers,
+      issue_number: pull.number,
+      body: reviewComment,
     });
 
     await githubApi.rest.issues.addLabels({

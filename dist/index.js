@@ -68,11 +68,12 @@ function handlePullRequest() {
         const changedFiles = yield (0, utils_1.getChangedFiles)(githubApi, pull.base.sha, pull.head.sha);
         const reviewers = yield (0, utils_1.getConfigReviewers)(config, changedFiles);
         console.debug(`Adding reviewers ${reviewers}`);
-        yield githubApi.rest.pulls.requestReviewers({
+        const reviewComment = `Requesting review from: ${reviewers.map(name => `@${name}`).join(' ')}`;
+        yield githubApi.rest.issues.createComment({
             owner: github.context.repo.owner,
             repo: github.context.repo.repo,
-            pull_number: pull.number,
-            reviewers: reviewers,
+            issue_number: pull.number,
+            body: reviewComment,
         });
         yield githubApi.rest.issues.addLabels({
             owner: github.context.repo.owner,
@@ -119,11 +120,12 @@ function handleIssueComment() {
                 core.debug(`/lgtm from non-reviewer ${commenter}`);
                 return;
             }
-            yield githubApi.rest.issues.addAssignees({
+            const reviewComment = `Requesting approval from: ${approvers.map(name => `@${name}`).join(' ')}`;
+            yield githubApi.rest.issues.createComment({
                 owner: github.context.repo.owner,
                 repo: github.context.repo.repo,
-                issue_number: github.context.issue.number,
-                assignees: approvers,
+                issue_number: pull.number,
+                body: reviewComment,
             });
             yield githubApi.rest.issues.addLabels({
                 owner: github.context.repo.owner,
