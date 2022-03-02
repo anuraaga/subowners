@@ -20,6 +20,7 @@ const ownerFilePath = core.getInput("config-file", { required: true });
 
 async function run(): Promise<void> {
   const eventName = github.context.eventName;
+  console.debug(`Handling ${eventName}`);
   switch (eventName) {
     case "pull_request":
     case "pull_request_target":
@@ -36,6 +37,7 @@ async function handlePullRequest() {
 
   if (labels.includes("needs lgtm") || labels.includes("needs approve")) {
     // TODO(anuraaga): Consider resyncing reviewers on every event, not just creation.
+    console.debug('Already contains label.');
     return;
   }
 
@@ -46,6 +48,7 @@ async function handlePullRequest() {
     pull.head.sha
   );
   const reviewers = await getConfigReviewers(config, changedFiles);
+  console.debug(`Adding reviewers ${reviewers}`);
 
   await githubApi.rest.pulls.requestReviewers({
     owner: github.context.repo.owner,
