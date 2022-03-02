@@ -1,20 +1,159 @@
 import * as core from "@actions/core";
 import * as github from "@actions/github";
-import { wait } from "./wait";
+import { Config, validateConfig } from "./models/config";
+import {
+  getChangedFiles,
+  getConfigApprovers,
+  getConfigReviewers,
+  loadYaml,
+} from "./utils";
+import {
+  IssueCommentEvent,
+  PullRequestEvent,
+} from "@octokit/webhooks-definitions/schema";
+
+const githubApi = github.getOctokit(
+  core.getInput("repo-token", { required: true })
+);
+
+const ownerFilePath = core.getInput("config-file", { required: true });
 
 async function run(): Promise<void> {
-  try {
-    const ms: string = core.getInput("milliseconds");
-    core.debug(`Waiting ${ms} milliseconds ...`); // debug is only output if you set the secret `ACTIONS_STEP_DEBUG` to true
-
-    core.debug(new Date().toTimeString());
-    await wait(parseInt(ms, 10));
-    core.debug(new Date().toTimeString());
-
-    core.setOutput("time", new Date().toTimeString());
-  } catch (error) {
-    if (error instanceof Error) core.setFailed(error.message);
+  const eventName = github.context.eventName;
+  switch (eventName) {
+    case "pull_request":
+      return handlePullRequest();
+    case "issue_comment":
+      return handleIssueComment();
   }
+}
+
+async function handlePullRequest() {
+  const event = github.context.payload as PullRequestEvent;
+  const pull = event.pull_request;
+  const labels = pull.labels.map((label) => label.name);
+
+  if (labels.includes("needs lgtm") || labels.includes("needs approve")) {
+    // TODO(anuraaga): Consider resyncing reviewers on every event, not just creation.
+    return;
+  }
+
+  const config = await getConfig(pull.base.sha);
+  const changedFiles = await getChangedFiles(
+    githubApi,
+    pull.base.sha,
+    pull.head.sha
+  );
+  const reviewers = await getConfigReviewers(config, changedFiles);
+
+  await githubApi.rest.pulls.requestReviewers({
+    owner: github.context.repo.owner,
+    repo: github.context.repo.repo,
+    pull_number: pull.number,
+    reviewers: reviewers,
+  });
+
+  await githubApi.rest.issues.addLabels({
+    owner: github.context.repo.owner,
+    repo: github.context.repo.repo,
+    issue_number: pull.number,
+    labels: ["needs lgtm"],
+  });
+}
+
+async function handleIssueComment() {
+  const event = github.context.payload as IssueCommentEvent;
+  if (!event.issue.pull_request) {
+    return;
+  }
+
+  const pullRes = await githubApi.rest.pulls.get({
+    owner: github.context.repo.owner,
+    repo: github.context.repo.repo,
+    pull_number: event.issue.number,
+  });
+  const pull = pullRes.data;
+
+  const labels = pull.labels.map((label) => label.name);
+
+  var needsLgtm = false;
+  if (labels.includes("needs lgtm")) {
+    needsLgtm = true;
+    if (!event.comment.body.includes("/lgtm")) {
+      return;
+    }
+  }
+
+  var needsApprove = false;
+  if (labels.includes("needs approve")) {
+    needsApprove = true;
+    if (!event.comment.body.includes("/approve")) {
+      return;
+    }
+  }
+
+  const config = await getConfig(pull.base.sha);
+  const changedFiles = await getChangedFiles(
+    githubApi,
+    pull.base.sha,
+    pull.head.sha
+  );
+  const approvers = await getConfigApprovers(config, changedFiles);
+  const commenter = event.comment.user.login;
+
+  if (needsLgtm) {
+    const reviewers = await getConfigReviewers(config, changedFiles);
+
+    if (!reviewers.includes(commenter)) {
+      core.debug(`/lgtm from non-reviewer ${commenter}`);
+      return;
+    }
+
+    await githubApi.rest.issues.addAssignees({
+      owner: github.context.repo.owner,
+      repo: github.context.repo.repo,
+      issue_number: github.context.issue.number,
+      assignees: approvers,
+    });
+
+    await githubApi.rest.issues.addLabels({
+      owner: github.context.repo.owner,
+      repo: github.context.repo.repo,
+      issue_number: event.issue.number,
+      labels: ["needs approve"],
+    });
+
+    await githubApi.rest.issues.removeLabel({
+      owner: github.context.repo.owner,
+      repo: github.context.repo.repo,
+      issue_number: event.issue.number,
+      name: "needs lgtm",
+    });
+  } else if (needsApprove) {
+    if (!approvers.includes(commenter)) {
+      core.debug(`/approve from non-reviewer ${commenter}`);
+      return;
+    }
+
+    await githubApi.rest.issues.addLabels({
+      owner: github.context.repo.owner,
+      repo: github.context.repo.repo,
+      issue_number: event.issue.number,
+      labels: ["ready for merge"],
+    });
+
+    await githubApi.rest.issues.removeLabel({
+      owner: github.context.repo.owner,
+      repo: github.context.repo.repo,
+      issue_number: event.issue.number,
+      name: "needs approve",
+    });
+  }
+}
+
+async function getConfig(ref: string): Promise<Config> {
+  const configFile = await loadYaml(githubApi, ref, ownerFilePath);
+  return validateConfig(configFile);
 }
 
 run();

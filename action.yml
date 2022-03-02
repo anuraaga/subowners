@@ -1,6 +1,16 @@
-name: 'Your name here'
-description: 'Provide a description here'
-author: 'Your name or organization here'
+name: 'Auto Assign Owners'
+description: 'Automatically assign and add approvers to component owners specified in an owners file'
+
+inputs:
+  repo-token:
+    description: 'A token for the repo'
+    default: ${{ github.token }}
+    required: false
+  config-file:
+    description: 'Path to a JSON file with ownership information'
+    default: .github/component_owners.yml
+    required: false
+
 runs:
   using: 'node16'
   main: 'dist/index.js'
