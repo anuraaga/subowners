@@ -22,6 +22,7 @@ async function run(): Promise<void> {
   const eventName = github.context.eventName;
   switch (eventName) {
     case "pull_request":
+    case "pull_request_target":
       return handlePullRequest();
     case "issue_comment":
       return handleIssueComment();
