@@ -44,8 +44,10 @@ const ownerFilePath = core.getInput("config-file", { required: true });
 function run() {
     return __awaiter(this, void 0, void 0, function* () {
         const eventName = github.context.eventName;
+        console.debug(`Handling ${eventName}`);
         switch (eventName) {
             case "pull_request":
+            case "pull_request_target":
                 return handlePullRequest();
             case "issue_comment":
                 return handleIssueComment();
@@ -59,11 +61,13 @@ function handlePullRequest() {
         const labels = pull.labels.map((label) => label.name);
         if (labels.includes("needs lgtm") || labels.includes("needs approve")) {
             // TODO(anuraaga): Consider resyncing reviewers on every event, not just creation.
+            console.debug('Already contains label.');
             return;
         }
         const config = yield getConfig(pull.base.sha);
         const changedFiles = yield (0, utils_1.getChangedFiles)(githubApi, pull.base.sha, pull.head.sha);
         const reviewers = yield (0, utils_1.getConfigReviewers)(config, changedFiles);
+        console.debug(`Adding reviewers ${reviewers}`);
         yield githubApi.rest.pulls.requestReviewers({
             owner: github.context.repo.owner,
             repo: github.context.repo.repo,
